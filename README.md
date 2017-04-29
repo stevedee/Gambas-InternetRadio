@@ -1,2 +1,2 @@
 # Gambas-InternetRadio
-A Gambas program for Internet Radio on a Raspberry Pi
+A Gambas command-line program for Internet Radio on a Raspberry Pi
