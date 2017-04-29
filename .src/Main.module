@@ -1,0 +1,170 @@
+' Gambas module file
+
+' Gambas Internet Radio
+'===================================
+'This app needs mplayer and espeak
+'SteveDee March 2017
+'Plays music or a selected radio stream based on a Program Source number.
+'Program Source number increments when push button is pressed.
+'eSpeak announces which Program Source has been selected.
+'-----------------------------------
+
+'declare gpio library & methods using wiringPi----------------------------------------------------------
+Library "/usr/local/lib/libwiringPi"
+
+Public Extern wiringPiSetup() As Integer        'Initialises wiringPi & assumes the calling program uses virtual Pin numbers
+Public Extern pinMode(pin As Integer, pud As Integer)   'sets Pin mode to either INPUT, OUTPUT, (or if applicable; PWM_OUTPUT or GPIO_CLOCK)
+Public Extern digitalRead(pin As Integer) As Integer      'returns the input state (low=0, high=1)
+
+Public hTimerPlayer As Timer       'timer to ckeck player is running
+Public hTimerSwitch As Timer        'timer to check switch status
+
+'Program Sources
+Const JUKE_BOX As Integer = 0
+Const RADIO_CAROLINE As Integer = 1
+Const PLANET_ROCK As Integer = 2
+Const RADIO_2 As Integer = 3
+Const RADIO_4 As Integer = 4
+Const WORLD_SERVICE As Integer = 5
+Const HIGHEST_SOURCE As Integer = 5   'change this number if you change the number of Program sources
+
+Const LAST_SOURCE As String = "/home/pi/LastSource"   'file where we store the current/previously run source number
+
+Const PLAYER As String = "mplayer"
+Const MUSIC As String = "/home/pi/Music/"
+Const URL_CAROLINE As String = "http://sc6.radiocaroline.net:8040/listen.pls" '128k
+Const URL_ROCK As String = "http://tx.sharp-stream.com/icecast.php?i=planetrock.mp3" '112k
+Const URL_R2 As String = "http://www.listenlive.eu/bbcradio2.m3u" '128k
+Const URL_R4 As String = "http://www.listenlive.eu/bbcradio4.m3u" '128k
+Const URL_WORLD As String = "http://wsdownload.bbc.co.uk/worldservice/meta/live/shoutcast/mp3/eieuk.pls" '48k mp3
+
+Const SWITCH_INPUT As Integer = 7   'the Pi input pin
+
+Public Sub Main()
+Dim hFile As File
+Dim strTempSource As String
+Dim strTemp As String
+
+  'this timer checks whether media player is running
+  hTimerPlayer = New Timer As "tmrPlayerCheck"
+  hTimerPlayer.Delay = 10000
+  hTimerPlayer.start
+ 
+  'this timer checks if switch has been pressed
+  hTimerSwitch = New Timer As "tmrSwitchStatus"
+  hTimerSwitch.Delay = 300
+  hTimerSwitch.start
+
+'config gpio
+  wiringPiSetup()
+  pinMode(SWITCH_INPUT, 0)
+'set Pi volume
+  Exec ["amixer", "sset", "PCM,0", "100%"]
+  
+  If Not Exist(LAST_SOURCE) Then      'the file containing the last source ref is missing (maybe this is 1st run)
+    hfile = Open LAST_SOURCE For Create
+    Write #hFile, "0", Len("0")       'create file & use default source (Juke-box)
+    Close #hFile
+  Endif
+'update playlist in case music files have been added/removed since player was last used
+  Shell "find " & MUSIC & " -type f -iname *.ogg -o -name *.wma -o -iname *.mp3 > " & MUSIC & "playlist" 
+'use music source from last time program was run
+  SelectSource(GetPreviousSource())     'run the player with the previously selected source
+End
+
+Public Function SelectSource(iSource As Integer) As Integer
+'choose source based upon value of iSource, announce it, then load mplayer & play it
+  Select iSource
+    Case RADIO_CAROLINE
+      Exec ["espeak", "-ven+f4", "-s110", "-k5", "-a", "30", "Radio Caroline"] Wait
+  		Exec ["mplayer", "-cache", "64", "-playlist", URL_CAROLINE]
+    Case PLANET_ROCK
+      Exec ["espeak", "-ven+m5", "-s100", "-k5", "-a", "30", "Planet Rock"] Wait
+  		Exec ["mplayer", "-cache", "64", "-playlist", URL_ROCK]
+    Case RADIO_2
+      Exec ["espeak", "-ven+f1", "-s100", "-k5", "-a", "30", "BBC Radio two"] Wait
+  		Exec ["mplayer", "-cache", "64", "-playlist", URL_R2]
+      
+    Case RADIO_4
+      Exec ["espeak", "-ven+m1", "-s100", "-k5", "-a", "30", "BBC Radio four"] Wait
+  		Exec ["mplayer", "-cache", "64", "-playlist", URL_R4]
+
+    Case WORLD_SERVICE
+      Exec ["espeak", "-ven+m3", "-s110", "-k5", "-a", "30", "The BBC world service"] Wait
+  		Exec ["mplayer", "-cache", "64", "-playlist", URL_WORLD]
+
+    Case Else 'Juke-Box
+      Exec ["espeak", "-ven+f2", "-s90", "-k9", "-a", "30", "play that funky music, White boy"] Wait
+      'shuffle the music playlist each time the Juke-box is restarted
+      Exec ["mplayer", "-shuffle", "-playlist", MUSIC & "playlist"]
+  End Select
+End
+
+Public Function GetPreviousSource() As Integer
+'open file and retrieve Program source number
+Dim hFile As File
+Dim strFile As String
+
+    If Access(LAST_SOURCE, gb.Read) Then
+      hFile = Open LAST_SOURCE For Read
+      Read #hFile, strfile, -512
+      Close #hFile
+      Return CInt(strfile)
+    Else
+      Return 0
+    Endif
+Catch  'error, so maybe the file is corrupt
+  SaveCurrentSource(0)
+End
+
+Public Function SaveCurrentSource(iSource As Integer) As Boolean
+Dim hFile As File
+  
+  If Access(LAST_SOURCE, gb.Write) Then
+    hFile = Open LAST_SOURCE For Write
+    Write #hFile, CStr(iSource), Len(CStr(iSource))
+    Close #hFile
+    Return True
+  Endif
+End
+
+Public Sub tmrSwitchStatus_Timer()
+' Dim intStatus As Integer
+Dim strProcIDs As String
+Dim strPID As String
+Dim intNext As Integer
+  
+'   intStatus = digitalRead(SWITCH_INPUT)
+  If digitalRead(SWITCH_INPUT) = 0 Then     'someone is pushing the button!
+    hTimerSwitch.Delay = 2000  'debounce switch
+    Exec ["pgrep", PLAYER] To strProcIDs
+    If Len(strProcIDs) > 1 Then
+      Do
+        strPID = Mid(strProcIDs, 1, InStr(strProcIDs, Chr(10)) - 1)
+        Exec ["kill", strPID] Wait
+        strProcIDs = Mid(strProcIDs, InStr(strProcIDs, Chr(10)) + 1)
+      Loop Until strProcIDs = ""
+      intNext = GetPreviousSource() + 1
+      If intNext > HIGHEST_SOURCE Then
+        intNext = 0
+      Endif
+      SaveCurrentSource(intNext)
+      SelectSource(GetPreviousSource())
+    Endif
+  Else
+    hTimerSwitch.Delay = 300
+  Endif
+Catch
+  'error handler (trap it, but don't do anything)
+End
+
+
+Public Sub tmrPlayerCheck_Timer()
+'if player stops running, this should detect it and restart it
+Dim sOutput As String
+  
+  Exec ["pgrep", "-f", "-l", PLAYER] Wait To sOutput
+  If Split(Trim$(sOutput), gb.newLine).Count < 1 Then     'player is not running
+    SelectSource(GetPreviousSource())
+  Endif
+End

@@ -1,0 +1,15 @@
+[Breakpoints]
+Breakpoint[1]="Main.165"
+Count=0
+
+[DebugWindow]
+Count=0
+
+[OpenFile]
+Active=1
+File[1]=".src/Main.module:46.11"
+Count=1
+
+[Watches]
+Count=0
+

@@ -1,0 +1,16 @@
+# Gambas Project File 3.0
+# Compiled with Gambas 3.5.4
+Title=InternetRadio
+Startup=Main
+Version=0.0.3
+TabSize=2
+Language=en_US
+Maintainer=stevedee
+Address=pi@desktoppi
+License=General Public License
+PackageName=internetradio-0.0.2
+Packager=1
+Systems=debian
+Menus=debian:"Applications/TV and Radio"
+Groups=debian:"sound"
+ExtraDependencies=debian:"espeak\t\t\nmplayer\t\t"
